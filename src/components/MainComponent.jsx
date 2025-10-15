@@ -1,0 +1,229 @@
+import React from "react";
+import MapView from "./MapView";
+import PetCard from "./PetCard.jsx";
+import ReportPetModal from "./ReportPetModal.jsx";
+import MessagesView from "./MessagesViews.jsx";
+import AlertsView from "./AlertsView.jsx";
+import ProfileView from "./ProfileView.jsx";
+
+function MainComponent() {
+  const [currentMode, setCurrentMode] = React.useState("rescue");
+  const [activeTab, setActiveTab] = React.useState("map");
+  const [showReportModal, setShowReportModal] = React.useState(false);
+  const [userLocation, setUserLocation] = React.useState(null);
+  const [pets, setPets] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+        }
+      );
+    }
+  }, []);
+
+ React.useEffect(() => {
+  setLoading(true);
+  setTimeout(() => {
+   setPets([
+  {
+    id: 1,
+    name: "Firulais",
+    lat: -33.45,
+    lng: -70.66,
+    status: "lost",
+    images: [
+      "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000005/196154247-brown-mongrel-dog-in-the-park.jpg",
+      "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000010/196154252-brown-mongrel-dog-in-the-park.jpg",
+      "https://us.123rf.com/450wm/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000003/196154096-brown-mongrel-dog-in-the-park.jpg",
+      "https://us.123rf.com/450wm/siempreverde22/siempreverde221807/siempreverde22180738128/108536670-retrato-de-un-lindo-perro-en-surinam.jpg?ver=6"
+    ],
+    description: "Perro mestizo, color café, muy juguetón y amigable. Se perdió cerca del parque central."
+  },
+  {
+    id: 2,
+    name: "Michi",
+    lat: -33.46,
+    lng: -70.67,
+    status: "found",
+    images: [
+      "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGhEhiXaoIULSV5IxsQrD5geHsKOWB-aW2Yg&s",
+      "https://images.unsplash.com/photo-1720838589031-f945e2cd1e92?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=tinysrgb&w=200&fit=max",
+      "https://images.unsplash.com/photo-1636727297469-3bc58a1e4d26?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8Z2F0byUyMGNvbiUyMG9qb3MlMjB2ZXJkZXN8ZW58MHx8MHx8fDA%3D&fm=jpg&q=60&w=3000"
+    ],
+    description: "Gato gris, ojos verdes, encontrado en la plaza. Parece asustado pero sano."
+  },
+]);
+    setLoading(false);
+  }, 500);
+}, [currentMode, userLocation]);
+
+  const renderMapView = () => (
+  <div className="bg-gray-100 relative" style={{ height: "calc(100vh - 136px)", padding: 0, margin: 0 }}>
+    <MapView
+      center={userLocation ? [userLocation.lat, userLocation.lng] : [-33.45, -70.66]}
+      pets={pets}
+      userLocation={userLocation}
+      onCenterLocation={(location) => {
+        console.log("Centrando en ubicación:", location);
+      }}
+    />
+    <button
+      onClick={() => setShowReportModal(true)}
+      className="absolute bottom-6 right-6 w-16 h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-colors"
+      style={{ zIndex: 1000 }}
+    >
+      <i className="fas fa-plus text-xl"></i>
+    </button>
+  </div>
+);
+
+  const renderListView = () => (
+    <div className="bg-gray-50 p-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">
+            {currentMode === "rescue" ? "Mascotas Perdidas/Encontradas" : "Disponibles para Adopción"}
+          </h2>
+          <button
+            onClick={() => setShowReportModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          >
+            <i className="fas fa-plus"></i>
+            {currentMode === "rescue" ? "Reportar" : "Publicar"}
+          </button>
+        </div>
+        {loading ? (
+          <div className="text-center py-8">
+            <i className="fas fa-spinner fa-spin text-2xl text-gray-400"></i>
+            <p className="text-gray-600 mt-2">Cargando mascotas...</p>
+          </div>
+        ) : pets.length === 0 ? (
+          <div className="text-center py-12">
+            <i className="fas fa-paw text-4xl text-gray-400 mb-4"></i>
+            <h3 className="text-xl font-semibold text-gray-600 mb-2">
+              No se encontraron mascotas
+            </h3>
+            <p className="text-gray-500">
+              {currentMode === "rescue"
+                ? "No hay mascotas perdidas o encontradas en tu área"
+                : "No hay mascotas disponibles para adopción cerca"}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {pets.map((pet) => (
+              <PetCard key={pet.id} pet={pet} mode={currentMode} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case "map":
+        return renderMapView();
+      case "list":
+        return renderListView();
+      case "messages":
+        return <MessagesView />;
+      case "alerts":
+        return <AlertsView />;
+      case "profile":
+        return <ProfileView />;
+      default:
+        return renderMapView();
+    }
+  };
+
+  return (
+    <div className="bg-white flex flex-col min-h-screen">
+      <header className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <i className="fas fa-paw text-2xl text-blue-600 mr-3"></i>
+              <h1 className="text-2xl font-bold text-gray-900">FindPaws</h1>
+            </div>
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setCurrentMode("rescue")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  currentMode === "rescue"
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <i className="fas fa-search mr-2"></i>
+                Rescate
+              </button>
+              <button
+                onClick={() => setCurrentMode("adoption")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  currentMode === "adoption"
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <i className="fas fa-heart mr-2"></i>
+                Adopción
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-grow flex flex-col pb-20">
+        {renderContent()}
+      </main>
+
+      <nav className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 px-4 py-2 z-40">
+        <div className="flex justify-around">
+          {[
+            { id: "map", icon: "fas fa-map", label: "Mapa" },
+            { id: "list", icon: "fas fa-list", label: "Lista" },
+            { id: "messages", icon: "fas fa-comments", label: "Mensajes" },
+            { id: "alerts", icon: "fas fa-bell", label: "Alertas" },
+            { id: "profile", icon: "fas fa-user", label: "Perfil" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-col items-center py-2 px-3 rounded-lg transition-colors ${
+                activeTab === tab.id
+                  ? "text-blue-600 bg-blue-50"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              <i className={`${tab.icon} text-lg mb-1`}></i>
+              <span className="text-xs font-medium">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {showReportModal && (
+        <ReportPetModal
+          mode={currentMode}
+          onClose={() => setShowReportModal(false)}
+          onSuccess={() => {
+            setShowReportModal(false);
+          }}
+          userLocation={userLocation}
+        />
+      )}
+    </div>
+  );
+}
+
+export default MainComponent;
