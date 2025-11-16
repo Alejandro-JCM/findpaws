@@ -5,15 +5,25 @@ import ReportPetModal from "./ReportPetModal.jsx";
 import MessagesView from "./MessagesViews.jsx";
 import AlertsView from "./AlertsView.jsx";
 import ProfileView from "./ProfileView.jsx";
+import LoginModal from "./LoginModal.jsx"; // Importar LoginModal
+import AlertModal from "./AlertModal.jsx"; // Importar el nuevo AlertModal
+import { useAuth } from "./AuthContext.jsx"; // Importar hook de autenticación
 
+// Componente principal que orquesta toda la aplicación.
 function MainComponent() {
   const [currentMode, setCurrentMode] = React.useState("rescue");
   const [activeTab, setActiveTab] = React.useState("map");
   const [showReportModal, setShowReportModal] = React.useState(false);
+  const [showAuthModal, setShowAuthModal] = React.useState(false); // Para Login/Register
+  const [alertMessage, setAlertMessage] = React.useState(""); // Estado para el mensaje de alerta
+  const [showAlertModal, setShowAlertModal] = React.useState(false); // Estado para mostrar el modal de alerta
   const [userLocation, setUserLocation] = React.useState(null);
   const [pets, setPets] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [chattingWith, setChattingWith] = React.useState(null);
+  const { isAuthenticated, loading: authLoading } = useAuth();
 
+  // Efecto para obtener la geolocalización del usuario al cargar el componente.
   React.useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -30,62 +40,123 @@ function MainComponent() {
     }
   }, []);
 
- React.useEffect(() => {
-  setLoading(true);
-  setTimeout(() => {
-   setPets([
-  {
-    id: 1,
-    name: "Firulais",
-    lat: -33.45,
-    lng: -70.66,
-    status: "lost",
-    images: [
-      "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000005/196154247-brown-mongrel-dog-in-the-park.jpg",
-      "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000010/196154252-brown-mongrel-dog-in-the-park.jpg",
-      "https://us.123rf.com/450wm/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000003/196154096-brown-mongrel-dog-in-the-park.jpg",
-      "https://us.123rf.com/450wm/siempreverde22/siempreverde221807/siempreverde22180738128/108536670-retrato-de-un-lindo-perro-en-surinam.jpg?ver=6"
-    ],
-    description: "Perro mestizo, color café, muy juguetón y amigable. Se perdió cerca del parque central."
-  },
-  {
-    id: 2,
-    name: "Michi",
-    lat: -33.46,
-    lng: -70.67,
-    status: "found",
-    images: [
-      "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGhEhiXaoIULSV5IxsQrD5geHsKOWB-aW2Yg&s",
-      "https://images.unsplash.com/photo-1720838589031-f945e2cd1e92?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=tinysrgb&w=200&fit=max",
-      "https://images.unsplash.com/photo-1636727297469-3bc58a1e4d26?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8Z2F0byUyMGNvbiUyMG9qb3MlMjB2ZXJkZXN8ZW58MHx8MHx8fDA%3D&fm=jpg&q=60&w=3000"
-    ],
-    description: "Gato gris, ojos verdes, encontrado en la plaza. Parece asustado pero sano."
-  },
-]);
-    setLoading(false);
-  }, 500);
-}, [currentMode, userLocation]);
+  // Efecto para cargar las mascotas.
+  React.useEffect(() => {
+    setLoading(true);
 
+    // --- DATOS DE PRUEBA (MOCKUPS) ---
+    // Descomenta el bloque de fetch y comenta este bloque para usar la API.
+    setTimeout(() => {
+      setPets([
+        {
+          id: 1,
+          name: "Firulais",
+          lat: -33.45,
+          lng: -70.66,
+          status: "lost",
+          images: [
+            "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000005/196154247-brown-mongrel-dog-in-the-park.jpg",
+            "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000010/196154252-brown-mongrel-dog-in-the-park.jpg",
+            "https://us.123rf.com/450wm/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000003/196154096-brown-mongrel-dog-in-the-park.jpg",
+            "https://us.123rf.com/450wm/siempreverde22/siempreverde221807/siempreverde22180738128/108536670-retrato-de-un-lindo-perro-en-surinam.jpg?ver=6"
+          ],
+          description: "Perro mestizo, color café, muy juguetón y amigable. Se perdió cerca del parque central.",
+          user: { id: 101, name: 'Juan Pérez' }
+        },
+        {
+          id: 2,
+          name: "Michi",
+          lat: -33.46,
+          lng: -70.67,
+          status: "found",
+          images: [
+            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGhEhiXaoIULSV5IxsQrD5geHsKOWB-aW2Yg&s",
+            "https://images.unsplash.com/photo-1720838589031-f945e2cd1e92?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=tinysrgb&w=200&fit=max",
+            "https://images.unsplash.com/photo-1636727297469-3bc58a1e4d26?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8Z2F0byUyMGNvbiUyMG9qb3MlMjB2ZXJkZXN8ZW58MHx8MHx8fDA%3D&fm=jpg&q=60&w=3000"
+          ],
+          description: "Gato gris, ojos verdes, encontrado en la plaza. Parece asustado pero sano.",
+          user: { id: 102, name: 'Maria González' }
+        },
+        {
+          id: 3,
+          name: "Gatito",
+          lat: -33.44,
+          lng: -70.65,
+          status: "available_for_adoption",
+          images: [
+            "https://i.pinimg.com/736x/97/97/78/9797781a76e20dcfdfd421b1d9f63876.jpg",
+            "https://images.unsplash.com/photo-1602026124700-82f6bae34bde?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8Z2F0aXRvJTIwbmVncm98ZW58MHx8MHx8fDA%3D&fm=jpg&q=60&w=3000",
+            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSh9bVS1E3DP4wYzs8VRx-AevZhh3-jcj_nxA&s"
+          ],
+          description: "Cachorro juguetón busca un hogar amoroso. Le encanta jugar y dormir.",
+          user: { id: 103, name: 'Ana Silva' }
+        }
+      ]);
+      setLoading(false);
+    }, 500);
+
+    // --- CÓDIGO PARA OBTENER DATOS DESDE LA API ---
+    // Comenta el bloque de arriba y descomenta este para volver a usar la API.
+    // const fetchPets = async () => {
+    //   try {
+    //     const response = await fetch('/api/pets');
+    //     if (!response.ok) {
+    //       throw new Error('Error al cargar las mascotas');
+    //     }
+    //     const data = await response.json();
+    //     setPets(data);
+    //   } catch (error) {
+    //     console.error(error);
+    //   } finally {
+    //     setLoading(false);
+    //   }
+    // };
+    // fetchPets();
+  }, [currentMode]);
+
+  // Inicia un chat con un usuario y cambia a la pestaña de mensajes.
+  const handleStartChat = (user) => {
+    setChattingWith(user);
+    setActiveTab('messages');
+  };
+
+  // Vuelve a la lista general de mensajes desde un chat individual.
+  const handleBackToMessages = () => {
+    setChattingWith(null);
+  };
+
+  const handleOpenReportModal = () => {
+    if (!isAuthenticated) {
+      setAlertMessage("Debes iniciar sesión para reportar una mascota.");
+      setShowAlertModal(true);
+    } else {
+      setShowReportModal(true);
+    }
+  };
+
+  // Renderiza la vista del mapa con los marcadores de mascotas y el botón para reportar.
   const renderMapView = () => (
-  <div className="bg-gray-100 relative" style={{ height: "calc(100vh - 136px)", padding: 0, margin: 0 }}>
-    <MapView
-      center={userLocation ? [userLocation.lat, userLocation.lng] : [-33.45, -70.66]}
-      pets={pets}
-      userLocation={userLocation}
-      onCenterLocation={(location) => {
-        console.log("Centrando en ubicación:", location);
-      }}
-    />
-    <button
-      onClick={() => setShowReportModal(true)}
-      className="absolute bottom-6 right-6 w-16 h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-colors"
-      style={{ zIndex: 1000 }}
-    >
-      <i className="fas fa-plus text-xl"></i>
-    </button>
-  </div>
-);
+    <div className="bg-gray-100 relative" style={{ height: "calc(100vh - 136px)", padding: 0, margin: 0 }}>
+      <MapView
+        center={userLocation ? [userLocation.lat, userLocation.lng] : [-33.45, -70.66]}
+        pets={pets}
+        userLocation={userLocation}
+        onStartChat={handleStartChat}
+        onCenterLocation={(location) => {
+          console.log("Centrando en ubicación:", location);
+        }}
+      />
+      <button
+        onClick={handleOpenReportModal}
+        className="absolute bottom-6 right-6 w-16 h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-colors"
+        style={{ zIndex: 1000 }}
+      >
+        <i className="fas fa-plus text-xl"></i>
+      </button>
+    </div>
+  );
 
+  // Renderiza la vista de lista con las tarjetas de cada mascota.
   const renderListView = () => (
     <div className="bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
@@ -94,7 +165,7 @@ function MainComponent() {
             {currentMode === "rescue" ? "Mascotas Perdidas/Encontradas" : "Disponibles para Adopción"}
           </h2>
           <button
-            onClick={() => setShowReportModal(true)}
+            onClick={handleOpenReportModal}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
           >
             <i className="fas fa-plus"></i>
@@ -121,7 +192,11 @@ function MainComponent() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {pets.map((pet) => (
-              <PetCard key={pet.id} pet={pet} mode={currentMode} />
+              <PetCard 
+                key={pet.id} 
+                pet={pet} 
+                onStartChat={handleStartChat} 
+              />
             ))}
           </div>
         )}
@@ -129,6 +204,7 @@ function MainComponent() {
     </div>
   );
 
+  // Determina qué vista principal renderizar según la pestaña activa.
   const renderContent = () => {
     switch (activeTab) {
       case "map":
@@ -136,11 +212,11 @@ function MainComponent() {
       case "list":
         return renderListView();
       case "messages":
-        return <MessagesView />;
+        return <MessagesView user={chattingWith} onBack={handleBackToMessages} />;
       case "alerts":
         return <AlertsView />;
       case "profile":
-        return <ProfileView />;
+        return <ProfileView onLoginClick={() => setShowAuthModal(true)} />;
       default:
         return renderMapView();
     }
@@ -222,6 +298,23 @@ function MainComponent() {
           userLocation={userLocation}
         />
       )}
+
+      {showAlertModal && (
+        <AlertModal
+          message={alertMessage}
+          onClose={() => {
+            setShowAlertModal(false);
+            setShowAuthModal(true); // Abrir modal de login después de cerrar la alerta
+          }}
+        />
+      )}
+
+      {showAuthModal && (
+        <LoginModal
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
+
     </div>
   );
 }

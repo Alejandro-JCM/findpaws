@@ -1,13 +1,15 @@
 import React from "react";
-import { useUpload } from "../hooks/useUpload";
+import { useUpload } from "../hooks/useUpload.js";
+import { useAuth } from "./AuthContext.jsx";
+import axios from "axios";
 
 function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
   const [formData, setFormData] = React.useState({
     name: "",
-    species: "dog",
+    species: "",
     breed: "",
     color: "",
-    size: "medium",
+    size: "medium", // Corregido el valor inicial de age_estimate
     age_estimate: "adult",
     gender: "",
     description: "",
@@ -15,11 +17,12 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
     location_address: "",
     last_seen_date: new Date().toISOString().split("T")[0],
     is_emergency: false,
-    status: mode === "rescue" ? "lost" : "available_for_adoption",
+    status: mode === 'adoption' ? 'available_for_adoption' : '',
   });
   const [images, setImages] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const { upload, loading: uploading } = useUpload();
+  const { user, isAuthenticated } = useAuth();
 
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files);
@@ -39,28 +42,47 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isAuthenticated) {
+      alert("Debes iniciar sesión para poder reportar una mascota.");
+      return;
+    }
     setLoading(true);
 
     try {
+      // Preparamos los datos para el backend, incluyendo la ubicación.
+      // Por ahora, usamos la ubicación del usuario como la del reporte.
+      // También incluimos una pequeña aleatoriedad para la ubicación aproximada.
+      const randomOffset = (Math.random() - 0.5) * 0.005; // Aprox. 500 metros
       const petData = {
         ...formData,
-        image_urls: images,
-        location_lat: userLocation?.lat,
-        location_lng: userLocation?.lng,
+        images: images,
+        location: {
+          type: 'Point',
+          coordinates: [
+            userLocation.lng + randomOffset,
+            userLocation.lat + randomOffset,
+          ],
+        },
       };
 
-      const response = await fetch("/api/pets/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(petData),
-      });
+      // Obtenemos el token del objeto de usuario guardado en el localStorage
+      const userInfo = JSON.parse(localStorage.getItem('userInfo'));
+      const token = userInfo ? userInfo.token : null;
 
-      if (!response.ok) throw new Error("Failed to create pet listing");
+      const config = {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      };
+
+      await axios.post('http://localhost:5001/api/pets', petData, config);
 
       onSuccess();
     } catch (error) {
       console.error("Error creating pet listing:", error);
-      alert("Failed to create pet listing. Please try again.");
+      const message = error.response?.data?.message || "Error al crear la publicación. Por favor, inténtalo de nuevo.";
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -86,49 +108,63 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
               <i className="fas fa-times text-xl"></i>
             </button>
           </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === "rescue" && (
+            
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tipo de reporte
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tipo de reporte<span className="text-red-500 ml-1">*</span>
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="status"
+                    value="lost"
+                    checked={formData.status === "lost"}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: e.target.value,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  Perdida
                 </label>
-                <div className="flex gap-4">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="status"
-                      value="lost"
-                      checked={formData.status === "lost"}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          status: e.target.value,
-                        }))
-                      }
-                      className="mr-2"
-                    />
-                    Perdida
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="status"
-                      value="found"
-                      checked={formData.status === "found"}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          status: e.target.value,
-                        }))
-                      }
-                      className="mr-2"
-                    />
-                    Encontrada
-                  </label>
-                </div>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="status"
+                    value="found"
+                    checked={formData.status === "found"}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: e.target.value,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  Encontrada
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="status"
+                    value="available_for_adoption"
+                    checked={formData.status === "available_for_adoption"}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: e.target.value,
+                      }))
+                    }
+                    className="mr-2"
+                  />
+                  Adopción
+                </label>
               </div>
-            )}
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -145,10 +181,28 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   placeholder="Nombre de la mascota"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Especie *
+                  Género
+                </label>
+                <select
+                  value={formData.gender}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, gender: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">No especificado</option>
+                  <option value="male">Macho</option>
+                  <option value="female">Hembra</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Especie<span className="text-red-500 ml-1">*</span>
                 </label>
                 <select
                   value={formData.species}
@@ -161,6 +215,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 >
+                  <option value="" disabled>Selecciona una especie</option>
                   <option value="dog">Perro</option>
                   <option value="cat">Gato</option>
                   <option value="bird">Ave</option>
@@ -183,7 +238,9 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   placeholder="Raza"
                 />
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Color
@@ -240,7 +297,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Dirección o sector
+                Dirección o sector<span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 type="text"
@@ -253,28 +310,28 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Dirección o sector"
+                required
               />
             </div>
 
             {mode === "rescue" && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {formData.status === "lost" ? "Fecha de desaparición" : "Fecha encontrada"}
-                </label>
-                <input
-                  type="date"
-                  value={formData.last_seen_date}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      last_seen_date: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {formData.status === "lost" ? "Fecha de desaparición" : "Fecha encontrada"}
+              </label>
+              <input
+                type="date"
+                value={formData.last_seen_date}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    last_seen_date: e.target.value,
+                  }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
             )}
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Descripción
@@ -324,22 +381,18 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
               {images.length > 0 && (
-                <div className="mt-2 grid grid-cols-3 gap-3">
-                  {images.map((url, index) => (
-                    <div key={index} className="relative group">
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {images.map((img, idx) => (
+                    <div key={idx} className="relative">
                       <img
-                        src={url}
-                        alt={`Upload ${index + 1}`}
-                        className="w-full h-24 object-cover rounded-lg border border-gray-200"
+                        src={img}
+                        alt={`preview ${idx}`}
+                        className="w-24 h-24 object-cover rounded-lg"
                       />
                       <button
                         type="button"
-                        onClick={() =>
-                          setImages((prev) =>
-                            prev.filter((_, i) => i !== index)
-                          )
-                        }
-                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-80 group-hover:opacity-100 transition"
+                        onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs"
                         title="Eliminar foto"
                       >
                         ×
@@ -356,12 +409,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   type="checkbox"
                   id="emergency"
                   checked={formData.is_emergency}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      is_emergency: e.target.checked,
-                    }))
-                  }
+                  onChange={(e) => setFormData((prev) => ({ ...prev, is_emergency: e.target.checked }))}
                   className="mr-2"
                 />
                 <label htmlFor="emergency" className="text-sm text-gray-700">
@@ -381,13 +429,10 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
               <button
                 type="submit"
                 disabled={loading || uploading}
-                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:bg-blue-300 transition-colors"
               >
-                {loading ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin mr-2"></i>
-                    Guardando...
-                  </>
+                {loading || uploading ? (
+                  <i className="fas fa-spinner fa-spin"></i>
                 ) : (
                   <>
                     <i className="fas fa-save mr-2"></i>

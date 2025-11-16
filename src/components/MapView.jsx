@@ -32,6 +32,15 @@ const foundIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+const adoptionIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
 // Componente para controlar el centrado del mapa
 function RecenterMap({ center }) {
   const map = useMap();
@@ -93,14 +102,40 @@ function MapView({ center, pets, userLocation, onCenterLocation }) {
     }
   };
 
+  const getPetIcon = (status) => {
+    switch (status) {
+      case "lost":
+        return lostIcon;
+      case "found":
+        return foundIcon;
+      case "available_for_adoption":
+        return adoptionIcon;
+      default:
+        return lostIcon;
+    }
+  };
+
+  const getPetStatusInfo = (status) => {
+    switch (status) {
+      case "lost":
+        return { text: "Perdido", className: "bg-red-100 text-red-700" };
+      case "found":
+        return { text: "Encontrado", className: "bg-green-100 text-green-700" };
+      case "available_for_adoption":
+        return { text: "En Adopción", className: "bg-orange-100 text-orange-700" };
+      default:
+        return { text: "Desconocido", className: "bg-gray-100 text-gray-700" };
+    }
+  };
+
   return (
     <>
       <MapContainer 
-  center={mapCenter} 
-  zoom={13} 
-  style={{ height: "100%", width: "100%" }}
-  ref={mapRef}
->
+        center={mapCenter} 
+        zoom={13} 
+        style={{ height: "100%", width: "100%" }}
+        ref={mapRef}
+      >
         <TileLayer
           attribution='&copy; OpenStreetMap contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -108,34 +143,37 @@ function MapView({ center, pets, userLocation, onCenterLocation }) {
         
         <RecenterMap center={mapCenter} />
         
-        {pets.map((pet) => (
-          <Marker
-            key={pet.id}
-            position={[pet.lat, pet.lng]}
-            icon={pet.status === "lost" ? lostIcon : foundIcon}
-          >
-            <Popup>
-              <div style={{ minWidth: 220 }}>
-                <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
-                  {pet.images && pet.images.map((img, idx) => (
-                    <img
-                      key={idx}
-                      src={img}
-                      alt={pet.name}
-                      style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px", cursor: "pointer" }}
-                      onClick={() => openModal(pet.images, idx)}
-                    />
-                  ))}
+        {pets.map((pet) => {
+          const statusInfo = getPetStatusInfo(pet.status);
+          return (
+            <Marker
+              key={pet.id}
+              position={[pet.lat, pet.lng]}
+              icon={getPetIcon(pet.status)}
+            >
+              <Popup>
+                <div style={{ minWidth: 220 }}>
+                  <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
+                    {pet.images && pet.images.map((img, idx) => (
+                      <img
+                        key={idx}
+                        src={img}
+                        alt={pet.name}
+                        style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px", cursor: "pointer" }}
+                        onClick={() => openModal(pet.images, idx)}
+                      />
+                    ))}
+                  </div>
+                  <strong>{pet.name}</strong>
+                  <p style={{ fontSize: "0.95em", margin: "8px 0" }}>{pet.description}</p>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${statusInfo.className}`}>
+                    {statusInfo.text}
+                  </span>
                 </div>
-                <strong>{pet.name}</strong>
-                <p style={{ fontSize: "0.95em" }}>{pet.description}</p>
-                <span className={`px-2 py-1 rounded text-xs font-semibold ${pet.status === "lost" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
-                  {pet.status === "lost" ? "Perdido" : "Encontrado"}
-                </span>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+              </Popup>
+            </Marker>
+          );
+        })}
         
         {userLocation && (
           <Marker

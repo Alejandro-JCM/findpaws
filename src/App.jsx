@@ -1,7 +1,12 @@
-import MainComponent from './components/MainComponent'
+import MainComponent from './components/MainComponent';
+import { AuthProvider } from './components/AuthContext.jsx';
 
 function App() {
-  return <MainComponent />
+  return (
+    <AuthProvider>
+      <MainComponent />
+    </AuthProvider>
+  );
 }
 
 export default App
