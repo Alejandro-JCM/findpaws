@@ -44,75 +44,35 @@ function MainComponent() {
   React.useEffect(() => {
     setLoading(true);
 
-    // --- DATOS DE PRUEBA (MOCKUPS) ---
-    // Descomenta el bloque de fetch y comenta este bloque para usar la API.
-    setTimeout(() => {
-      setPets([
-        {
-          id: 1,
-          name: "Firulais",
-          lat: -33.45,
-          lng: -70.66,
-          status: "lost",
-          images: [
-            "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000005/196154247-brown-mongrel-dog-in-the-park.jpg",
-            "https://previews.123rf.com/images/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000010/196154252-brown-mongrel-dog-in-the-park.jpg",
-            "https://us.123rf.com/450wm/stieberszabolcs/stieberszabolcs2210/stieberszabolcs221000003/196154096-brown-mongrel-dog-in-the-park.jpg",
-            "https://us.123rf.com/450wm/siempreverde22/siempreverde221807/siempreverde22180738128/108536670-retrato-de-un-lindo-perro-en-surinam.jpg?ver=6"
-          ],
-          description: "Perro mestizo, color café, muy juguetón y amigable. Se perdió cerca del parque central.",
-          user: { id: 101, name: 'Juan Pérez' }
-        },
-        {
-          id: 2,
-          name: "Michi",
-          lat: -33.46,
-          lng: -70.67,
-          status: "found",
-          images: [
-            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGhEhiXaoIULSV5IxsQrD5geHsKOWB-aW2Yg&s",
-            "https://images.unsplash.com/photo-1720838589031-f945e2cd1e92?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=tinysrgb&w=200&fit=max",
-            "https://images.unsplash.com/photo-1636727297469-3bc58a1e4d26?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8Z2F0byUyMGNvbiUyMG9qb3MlMjB2ZXJkZXN8ZW58MHx8MHx8fDA%3D&fm=jpg&q=60&w=3000"
-          ],
-          description: "Gato gris, ojos verdes, encontrado en la plaza. Parece asustado pero sano.",
-          user: { id: 102, name: 'Maria González' }
-        },
-        {
-          id: 3,
-          name: "Gatito",
-          lat: -33.44,
-          lng: -70.65,
-          status: "available_for_adoption",
-          images: [
-            "https://i.pinimg.com/736x/97/97/78/9797781a76e20dcfdfd421b1d9f63876.jpg",
-            "https://images.unsplash.com/photo-1602026124700-82f6bae34bde?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8Z2F0aXRvJTIwbmVncm98ZW58MHx8MHx8fDA%3D&fm=jpg&q=60&w=3000",
-            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSh9bVS1E3DP4wYzs8VRx-AevZhh3-jcj_nxA&s"
-          ],
-          description: "Cachorro juguetón busca un hogar amoroso. Le encanta jugar y dormir.",
-          user: { id: 103, name: 'Ana Silva' }
-        }
-      ]);
-      setLoading(false);
-    }, 500);
-
     // --- CÓDIGO PARA OBTENER DATOS DESDE LA API ---
-    // Comenta el bloque de arriba y descomenta este para volver a usar la API.
-    // const fetchPets = async () => {
-    //   try {
-    //     const response = await fetch('/api/pets');
-    //     if (!response.ok) {
-    //       throw new Error('Error al cargar las mascotas');
-    //     }
-    //     const data = await response.json();
-    //     setPets(data);
-    //   } catch (error) {
-    //     console.error(error);
-    //   } finally {
-    //     setLoading(false);
-    //   }
-    // };
-    // fetchPets();
-  }, [currentMode]);
+    const fetchPets = async () => {
+      try {
+        // Usamos la URL completa del backend
+        const response = await fetch('http://localhost:5001/api/pets');
+        if (!response.ok) {
+          throw new Error('Error al cargar las mascotas');
+        }
+        const data = await response.json();
+        console.log('Mascotas cargadas desde API:', data); // Para debug
+        // Mapeamos los datos para que coincidan con la estructura que espera el frontend
+        const formattedPets = data
+          .filter(pet => pet.location && pet.location.coordinates && pet.location.coordinates.length === 2) // Filtramos mascotas sin ubicación válida
+          .map(pet => ({
+            ...pet,
+            id: pet._id, // React necesita una 'key' única, usamos _id
+            lat: pet.location.coordinates[1], // MongoDB usa [longitud, latitud], Leaflet usa [latitud, longitud]
+            lng: pet.location.coordinates[0],
+          }));
+        console.log('Mascotas formateadas:', formattedPets); // Para debug
+        setPets(formattedPets);
+      } catch (error) {
+        console.error('Error al cargar mascotas:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPets();
+  }, []);
 
   // Inicia un chat con un usuario y cambia a la pestaña de mensajes.
   const handleStartChat = (user) => {
@@ -134,13 +94,49 @@ function MainComponent() {
     }
   };
 
+  // Función para manejar el éxito del reporte y actualizar el estado
+  const handleReportSuccess = (newPet) => {
+    console.log('Nueva mascota recibida en handleReportSuccess:', newPet); // Para debug
+    
+    // Verificar que tenga ubicación válida
+    if (!newPet.location || !newPet.location.coordinates || newPet.location.coordinates.length < 2) {
+      console.error('La mascota no tiene coordenadas válidas:', newPet);
+      // Mostrar alerta al usuario
+      setAlertMessage("Error: La mascota no tiene una ubicación válida.");
+      setShowAlertModal(true);
+      return;
+    }
+    
+    // Formatear la nueva mascota para que coincida con la estructura esperada
+    const formattedNewPet = {
+      ...newPet,
+      id: newPet._id, // Usar _id como id
+      lat: newPet.location.coordinates[1], // MongoDB usa [lng, lat], leaflet usa [lat, lng]
+      lng: newPet.location.coordinates[0],
+    };
+    
+    console.log('Mascota formateada para agregar al estado:', formattedNewPet); // Para debug
+    
+    // Actualizar el estado de pets
+    setPets((prevPets) => [formattedNewPet, ...prevPets]);
+    setShowReportModal(false);
+    
+    // Cambiar a la vista de mapa para ver el nuevo marcador
+    setActiveTab('map');
+    
+    // Mostrar mensaje de éxito
+    setAlertMessage("¡Mascota reportada exitosamente! Se ha agregado al mapa.");
+    setShowAlertModal(true);
+  };
+
   // Renderiza la vista del mapa con los marcadores de mascotas y el botón para reportar.
   const renderMapView = () => (
     <div className="bg-gray-100 relative" style={{ height: "calc(100vh - 136px)", padding: 0, margin: 0 }}>
-      <MapView
+      <MapView 
         center={userLocation ? [userLocation.lat, userLocation.lng] : [-33.45, -70.66]}
         pets={pets}
         userLocation={userLocation}
+        showUserMarker={false}
         onStartChat={handleStartChat}
         onCenterLocation={(location) => {
           console.log("Centrando en ubicación:", location);
@@ -192,8 +188,8 @@ function MainComponent() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {pets.map((pet) => (
-              <PetCard 
-                key={pet.id} 
+              <PetCard
+              key={pet.id}
                 pet={pet} 
                 onStartChat={handleStartChat} 
               />
@@ -220,7 +216,7 @@ function MainComponent() {
       default:
         return renderMapView();
     }
-  };
+  }
 
   return (
     <div className="bg-white flex flex-col min-h-screen">
@@ -292,9 +288,7 @@ function MainComponent() {
         <ReportPetModal
           mode={currentMode}
           onClose={() => setShowReportModal(false)}
-          onSuccess={() => {
-            setShowReportModal(false);
-          }}
+          onSuccess={handleReportSuccess}
           userLocation={userLocation}
         />
       )}
@@ -304,7 +298,10 @@ function MainComponent() {
           message={alertMessage}
           onClose={() => {
             setShowAlertModal(false);
-            setShowAuthModal(true); // Abrir modal de login después de cerrar la alerta
+            // Solo abrir modal de login si el mensaje era sobre autenticación
+            if (alertMessage.includes("Debes iniciar sesión")) {
+              setShowAuthModal(true);
+            }
           }}
         />
       )}

@@ -1,15 +1,18 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { OpenStreetMapProvider } from "leaflet-geosearch";
+import useDebounce from "../hooks/useDebounce.js";
 import { useUpload } from "../hooks/useUpload.js";
 import { useAuth } from "./AuthContext.jsx";
+import LocationPickerMap from "./LocationPickerMap.jsx";
 import axios from "axios";
 
 function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
-  const [formData, setFormData] = React.useState({
+  const [formData, setFormData] = useState({
     name: "",
     species: "",
     breed: "",
     color: "",
-    size: "medium", // Corregido el valor inicial de age_estimate
+    size: "medium",
     age_estimate: "adult",
     gender: "",
     description: "",
@@ -17,76 +20,226 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
     location_address: "",
     last_seen_date: new Date().toISOString().split("T")[0],
     is_emergency: false,
-    status: mode === 'adoption' ? 'available_for_adoption' : '',
+    status: mode === "adoption" ? "available_for_adoption" : "lost",
+    locationCoords: null,
   });
-  const [images, setImages] = React.useState([]);
-  const [loading, setLoading] = React.useState(false);
+  const [images, setImages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const provider = new OpenStreetMapProvider();
+  const [showLocationWarning, setShowLocationWarning] = useState(false);
+  const [isPlacingOnMap, setIsPlacingOnMap] = useState(false);
+  const [isLocationFromMap, setIsLocationFromMap] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const debouncedSearchTerm = useDebounce(formData.location_address, 300);
   const { upload, loading: uploading } = useUpload();
   const { user, isAuthenticated } = useAuth();
 
+  const handleInputChange = (e) => {
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files);
-    const uploadPromises = files.map(async (file) => {
-      const { url, error } = await upload({ file });
-      if (error) {
-        console.error("Upload error:", error);
-        return null;
-      }
-      return url;
-    });
+    if (files.length === 0) return;
 
-    const uploadedUrls = await Promise.all(uploadPromises);
-    const validUrls = uploadedUrls.filter((url) => url !== null);
-    setImages((prev) => [...prev, ...validUrls]);
+    console.log('Archivos seleccionados para upload:', files);
+    setUploadProgress(10);
+
+    // Validar tamaño máximo (50MB por archivo)
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    
+    const invalidFiles = files.filter(file => file.size > maxSize);
+
+    if (invalidFiles.length > 0) {
+      alert('Algunos archivos son demasiado grandes. Máximo 50MB por archivo.');
+      return;
+    }
+
+    try {
+      const { urls, error } = await upload({ files });
+      setUploadProgress(100);
+
+      if (error) {
+        console.error('Error al subir archivos:', error);
+        alert(`Error al subir archivos: ${error}`);
+        return;
+      }
+
+      if (urls && urls.length > 0) {
+        console.log('URLs recibidas del upload:', urls);
+        
+        // Ya no necesitamos convertir porque useUpload ya lo hace
+        setImages((prev) => [...prev, ...urls]);
+        setUploadProgress(0);
+        
+        // Mostrar mensaje de éxito
+        if (urls.length === 1) {
+          alert('1 archivo subido exitosamente');
+        } else {
+          alert(`${urls.length} archivos subidos exitosamente`);
+        }
+      }
+    } catch (err) {
+      console.error('Error en handleImageUpload:', err);
+      setUploadProgress(0);
+      alert('Error al procesar los archivos. Intenta de nuevo.');
+    }
+  };
+
+  const removeImage = (index) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
     if (!isAuthenticated) {
       alert("Debes iniciar sesión para poder reportar una mascota.");
       return;
     }
+
+    if (images.length === 0) {
+      alert("Por favor, sube al menos una foto de la mascota.");
+      return;
+    }
+
+    if (!formData.locationCoords) {
+      alert("Por favor, selecciona una ubicación en el mapa.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // Preparamos los datos para el backend, incluyendo la ubicación.
-      // Por ahora, usamos la ubicación del usuario como la del reporte.
-      // También incluimos una pequeña aleatoriedad para la ubicación aproximada.
-      const randomOffset = (Math.random() - 0.5) * 0.005; // Aprox. 500 metros
-      const petData = {
-        ...formData,
-        images: images,
-        location: {
-          type: 'Point',
-          coordinates: [
-            userLocation.lng + randomOffset,
-            userLocation.lat + randomOffset,
-          ],
-        },
-      };
-
-      // Obtenemos el token del objeto de usuario guardado en el localStorage
-      const userInfo = JSON.parse(localStorage.getItem('userInfo'));
-      const token = userInfo ? userInfo.token : null;
-
+      const token = user ? user.token : null;
       const config = {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
       };
+      
+      // 1. Preparar ubicación GeoJSON
+      let locationData = null;
+      if (formData.locationCoords) {
+        locationData = {
+          type: 'Point',
+          coordinates: [formData.locationCoords[1], formData.locationCoords[0]], // [lng, lat]
+        };
+      }
+      
+      // 2. Crear objeto final para enviar
+      const { location_address, locationCoords, ...restOfFormData } = formData;
+      const petData = {
+        ...restOfFormData,
+        images: images, // URLs completas
+        location: locationData,
+        location_address: formData.location_address,
+      };
 
-      await axios.post('http://localhost:5001/api/pets', petData, config);
+      console.log('Enviando datos de mascota:', petData);
 
-      onSuccess();
+      const response = await axios.post("http://localhost:5001/api/pets", petData, config);
+      const newPet = response.data;
+
+      console.log('Mascota creada exitosamente:', newPet);
+
+      // 3. Llamar a onSuccess con la nueva mascota
+      onSuccess(newPet);
     } catch (error) {
       console.error("Error creating pet listing:", error);
-      const message = error.response?.data?.message || "Error al crear la publicación. Por favor, inténtalo de nuevo.";
+      let message = "Error al crear la publicación. Por favor, inténtalo de nuevo.";
+      
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+        message = error.response.data.message || message;
+      }
+      
       alert(message);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (debouncedSearchTerm && debouncedSearchTerm.length > 2 && !isLocationFromMap) {
+      const santiagoBounds = [
+        [-33.6, -70.8],
+        [-33.3, -70.5],
+      ];
+      const fetchResults = async () => {
+        const results = await provider.search({ 
+          query: debouncedSearchTerm, 
+          viewbox: santiagoBounds.flat() 
+        });
+        setSearchResults(results);
+      };
+      fetchResults();
+    } else {
+      setSearchResults([]);
+    }
+  }, [debouncedSearchTerm]);
+
+  const handleLocationAddressChange = (e) => {
+    setFormData((prev) => ({ 
+      ...prev, 
+      location_address: e.target.value, 
+      locationCoords: null 
+    }));
+    if (isLocationFromMap) {
+      setIsLocationFromMap(false);
+    }
+  };
+
+  const handleSelectLocation = (result) => {
+    setFormData((prev) => ({
+      ...prev,
+      location_address: result.label,
+      locationCoords: [result.y, result.x], // [lat, lng]
+    }));
+    setSearchResults([]);
+  };
+
+  const handleLocationFocus = () => {
+    setShowLocationWarning(true);
+  };
+
+  const handleMapLocationSelect = async ({ lat, lng }) => {
+    try {
+      const results = await provider.search({ query: `${lat}, ${lng}` });
+      const addressLabel = results.length > 0 ? results[0].label : `Ubicación seleccionada (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+      setFormData((prev) => ({
+        ...prev,
+        location_address: addressLabel,
+        locationCoords: [lat, lng],
+      }));
+      setIsLocationFromMap(true);
+      setIsPlacingOnMap(false);
+    } catch (error) {
+      console.error('Error en geocodificación inversa:', error);
+      setFormData((prev) => ({
+        ...prev,
+        location_address: `Ubicación seleccionada (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+        locationCoords: [lat, lng],
+      }));
+      setIsLocationFromMap(true);
+      setIsPlacingOnMap(false);
+    }
+  };
+
+  if (isPlacingOnMap) {
+    return (
+      <LocationPickerMap
+        userLocation={userLocation}
+        onLocationSelect={handleMapLocationSelect}
+        onCancel={() => setIsPlacingOnMap(false)}
+        petStatus={formData.status}
+      />
+    );
+  }
 
   return (
     <div
@@ -109,8 +262,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
             </button>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
-            
-              <div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Tipo de reporte<span className="text-red-500 ml-1">*</span>
               </label>
@@ -121,12 +273,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                     name="status"
                     value="lost"
                     checked={formData.status === "lost"}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        status: e.target.value,
-                      }))
-                    }
+                    onChange={handleInputChange}
                     className="mr-2"
                   />
                   Perdida
@@ -137,12 +284,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                     name="status"
                     value="found"
                     checked={formData.status === "found"}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        status: e.target.value,
-                      }))
-                    }
+                    onChange={handleInputChange}
                     className="mr-2"
                   />
                   Encontrada
@@ -153,12 +295,7 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                     name="status"
                     value="available_for_adoption"
                     checked={formData.status === "available_for_adoption"}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        status: e.target.value,
-                      }))
-                    }
+                    onChange={handleInputChange}
                     className="mr-2"
                   />
                   Adopción
@@ -172,11 +309,10 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Nombre (si se conoce)
                 </label>
                 <input
+                  name="name"
                   type="text"
                   value={formData.name}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, name: e.target.value }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Nombre de la mascota"
                 />
@@ -186,10 +322,9 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Género
                 </label>
                 <select
+                  name="gender"
                   value={formData.gender}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, gender: e.target.value }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">No especificado</option>
@@ -205,13 +340,9 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Especie<span className="text-red-500 ml-1">*</span>
                 </label>
                 <select
+                  name="species"
                   value={formData.species}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      species: e.target.value,
-                    }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 >
@@ -229,11 +360,10 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Raza
                 </label>
                 <input
+                  name="breed"
                   type="text"
                   value={formData.breed}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, breed: e.target.value }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Raza"
                 />
@@ -246,11 +376,10 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Color
                 </label>
                 <input
+                  name="color"
                   type="text"
                   value={formData.color}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, color: e.target.value }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Color"
                 />
@@ -261,10 +390,9 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Tamaño
                 </label>
                 <select
+                  name="size"
                   value={formData.size}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, size: e.target.value }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="small">Pequeño</option>
@@ -278,13 +406,9 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                   Edad estimada
                 </label>
                 <select
+                  name="age_estimate"
                   value={formData.age_estimate}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      age_estimate: e.target.value,
-                    }))
-                  }
+                  onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="puppy/kitten">Cachorro/Gatito</option>
@@ -299,51 +423,76 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Dirección o sector<span className="text-red-500 ml-1">*</span>
               </label>
-              <input
-                type="text"
-                value={formData.location_address}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    location_address: e.target.value,
-                  }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Dirección o sector"
-                required
-              />
+              <div className="flex flex-col sm:flex-row items-start gap-2">
+                <div className="relative flex-grow w-full">
+                  <input
+                    name="location_address"
+                    value={formData.location_address}
+                    onChange={handleLocationAddressChange}
+                    onFocus={handleLocationFocus}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Dirección o sector"
+                    autoComplete="off"
+                    required
+                  />
+                  {searchResults.length > 0 && (
+                    <ul className="absolute z-10 w-full bg-white border rounded-md mt-1 max-h-60 overflow-y-auto shadow-lg">
+                      {searchResults.map((result) => (
+                        <li
+                          key={result.raw.place_id}
+                          className="p-3 text-sm hover:bg-gray-100 cursor-pointer"
+                          onClick={() => handleSelectLocation(result)}
+                        >
+                          {result.label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPlacingOnMap(true)}
+                  className="w-full sm:w-auto px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 flex items-center justify-center gap-2"
+                >
+                  <i className="fas fa-map-marker-alt"></i>
+                  Posicionar en el mapa
+                </button>
+              </div>
+              {showLocationWarning && (
+                <p className="text-xs text-gray-500 mt-1">
+                  <i className="fas fa-info-circle mr-1"></i> Por tu seguridad, te recomendamos no usar tu dirección exacta. Elige un punto de referencia cercano.
+                </p>
+              )}
+              {formData.locationCoords && (
+                <p className="text-xs text-green-600 mt-1">
+                  <i className="fas fa-check-circle mr-1"></i> Ubicación seleccionada: {formData.locationCoords[0].toFixed(4)}, {formData.locationCoords[1].toFixed(4)}
+                </p>
+              )}
             </div>
 
             {mode === "rescue" && (
               <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {formData.status === "lost" ? "Fecha de desaparición" : "Fecha encontrada"}
-              </label>
-              <input
-                type="date"
-                value={formData.last_seen_date}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    last_seen_date: e.target.value,
-                  }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {formData.status === "lost" ? "Fecha de desaparición" : "Fecha encontrada"}
+                </label>
+                <input
+                  name="last_seen_date"
+                  type="date"
+                  value={formData.last_seen_date}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
             )}
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Descripción
               </label>
               <textarea
+                name="description"
                 value={formData.description}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    description: e.target.value,
-                  }))
-                }
+                onChange={handleInputChange}
                 rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Describe la mascota, comportamiento, circunstancias, etc."
@@ -355,13 +504,9 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                 Señales distintivas
               </label>
               <textarea
+                name="distinguishing_marks"
                 value={formData.distinguishing_marks}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    distinguishing_marks: e.target.value,
-                  }))
-                }
+                onChange={handleInputChange}
                 rows={2}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Cicatrices, marcas únicas, detalles del collar, etc."
@@ -371,35 +516,67 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
             {/* Sección de fotos mejorada */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fotos
+                Fotos<span className="text-red-500 ml-1">*</span>
+                <span className="text-xs text-gray-500 ml-2">(Máximo 50 archivos, 50MB cada uno)</span>
               </label>
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              {images.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {images.map((img, idx) => (
-                    <div key={idx} className="relative">
-                      <img
-                        src={img}
-                        alt={`preview ${idx}`}
-                        className="w-24 h-24 object-cover rounded-lg"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs"
-                        title="Eliminar foto"
-                      >
-                        ×
-                      </button>
+              <div className="mb-3">
+                <input
+                  type="file"
+                  multiple
+                  accept="*/*"  // Acepta cualquier tipo de archivo
+                  onChange={handleImageUpload}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={uploading || images.length >= 50}
+                />
+                {uploading && (
+                  <div className="mt-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div 
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
                     </div>
-                  ))}
+                    <p className="text-xs text-gray-500 mt-1">Subiendo archivos... {uploadProgress}%</p>
+                  </div>
+                )}
+              </div>
+              
+              {images.length > 0 && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">
+                    {images.length} {images.length === 1 ? 'archivo' : 'archivos'} seleccionado{images.length === 1 ? '' : 's'}
+                  </p>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                    {images.map((img, idx) => (
+                      <div key={idx} className="relative group">
+                        <img
+                          src={img}
+                          alt={`preview ${idx + 1}`}
+                          className="w-full h-24 object-cover rounded-lg border border-gray-300"
+                          onError={(e) => {
+                            console.error('Error cargando archivo:', img);
+                            e.target.src = 'https://via.placeholder.com/150?text=Archivo';
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(idx)}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Eliminar archivo"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+              
+              {images.length === 0 && (
+                <p className="text-sm text-yellow-600 italic">
+                  <i className="fas fa-exclamation-triangle mr-1"></i>
+                  Debes subir al menos una foto de la mascota.
+                </p>
               )}
             </div>
 
@@ -423,20 +600,24 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
                 type="button"
                 onClick={onClose}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={loading}
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                disabled={loading || uploading}
-                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:bg-blue-300 transition-colors"
+                disabled={loading || uploading || images.length === 0 || !formData.locationCoords}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:bg-blue-300 transition-colors flex items-center justify-center"
               >
                 {loading || uploading ? (
-                  <i className="fas fa-spinner fa-spin"></i>
+                  <>
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                    {uploading ? "Subiendo..." : "Enviando..."}
+                  </>
                 ) : (
                   <>
                     <i className="fas fa-save mr-2"></i>
-                    {mode === "rescue" ? "Reportar Mascota" : "Publicar en Adopción"}
+                    {mode === "rescue" ? "Reportar Mascota" : "Generar Reporte"}
                   </>
                 )}
               </button>
@@ -448,4 +629,4 @@ function ReportPetModal({ mode, onClose, onSuccess, userLocation }) {
   );
 }
 
-export default ReportPetModal;
+export default ReportPetModal;  // ← ¡IMPORTANTE! Esto debe ser export default

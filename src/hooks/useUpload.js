@@ -1,25 +1,36 @@
 import { useState } from "react";
+import axios from "axios";
 
 export function useUpload() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const upload = async ({ file }) => {
+  // El hook ahora espera un array de archivos
+  const upload = async ({ files }) => {
     setLoading(true);
     setError(null);
-    
+
+    const formData = new FormData();
+    // Añadimos cada archivo al FormData. El nombre 'images' debe coincidir con el del backend.
+    files.forEach(file => {
+      formData.append('images', file);
+    });
     try {
-      // Simulación de upload - en producción esto se conectaría a un servicio real
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Crear URL local para el archivo (en producción sería una URL del servidor)
-      const localUrl = URL.createObjectURL(file);
-      
-      return { url: localUrl, error: null };
+      const config = {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      };
+
+      // Hacemos la petición POST a nuestra nueva ruta de subida
+      const { data } = await axios.post('http://localhost:5001/api/upload', formData, config);
+
+      // El backend ahora devuelve un array de URLs
+      return { urls: data.images, error: null };
     } catch (err) {
-      const errorMsg = "Failed to upload image";
+      const errorMsg = err.response?.data?.message || err.message || "Error al subir la imagen";
       setError(errorMsg);
-      return { url: null, error: errorMsg };
+      return { urls: null, error: errorMsg };
     } finally {
       setLoading(false);
     }

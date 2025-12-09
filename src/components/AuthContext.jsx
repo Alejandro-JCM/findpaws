@@ -12,33 +12,14 @@ export const AuthProvider = ({ children }) => {
 
   // Al cargar la app, intenta obtener los datos del usuario si hay un token
   useEffect(() => {
-    const token = localStorage.getItem('userInfo')
-      ? JSON.parse(localStorage.getItem('userInfo')).token
+    const userInfoFromStorage = localStorage.getItem('userInfo')
+      ? JSON.parse(localStorage.getItem('userInfo'))
       : null;
 
-    if (token) {
-      const fetchUser = async () => {
-        try {
-          const config = {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          };
-          // Usamos la ruta /api/users/profile que creamos
-          const { data } = await axios.get('http://localhost:5001/api/users/profile', config);
-          setUser(data);
-        } catch (err) {
-          // Si el token es inválido o expiró, limpiamos todo
-          console.error("Error al verificar token", err);
-          logout();
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchUser();
-    } else {
-      setLoading(false);
+    if (userInfoFromStorage) {
+      setUser(userInfoFromStorage);
     }
+    setLoading(false); // Marcar la carga como finalizada, haya o no usuario.
   }, []);
 
   // Función para registrar un nuevo usuario
@@ -53,11 +34,10 @@ export const AuthProvider = ({ children }) => {
         config
       );
 
-      setUser(data);
-      localStorage.setItem('userInfo', JSON.stringify(data));
       setLoading(false);
       return true;
-    } catch (err) {
+    } catch (err)
+    {
       const message = err.response && err.response.data.message ? err.response.data.message : err.message;
       setError(message);
       setLoading(false);
@@ -77,8 +57,9 @@ export const AuthProvider = ({ children }) => {
         config
       );
 
-      setUser(data);
       localStorage.setItem('userInfo', JSON.stringify(data));
+      setUser(data);
+
       setLoading(false);
       return true;
     } catch (err) {

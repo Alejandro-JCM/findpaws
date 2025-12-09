@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import ImageModal from "./ImageModal";
+import { getImageUrl } from "../utils/imageHelper"; // Asegúrate de importar esto
 
 // Íconos personalizados
 const userIcon = new L.Icon({
@@ -69,13 +70,14 @@ function CenterLocationButton({ userLocation, onCenter }) {
   );
 }
 
-function MapView({ center, pets, userLocation, onCenterLocation }) {
+function MapView({ center, pets, userLocation, onCenterLocation, onStartChat }) {
   const [modalImages, setModalImages] = useState([]);
   const [modalIndex, setModalIndex] = useState(null);
   const [mapCenter, setMapCenter] = useState(center);
   const mapRef = useRef();
 
   const openModal = (images, idx) => {
+    console.log('Abriendo modal con imágenes:', images);
     setModalImages(images);
     setModalIndex(idx);
   };
@@ -128,6 +130,17 @@ function MapView({ center, pets, userLocation, onCenterLocation }) {
     }
   };
 
+  // Filtrar mascotas con coordenadas válidas
+  const validPets = pets.filter(pet => {
+    if (!pet.lat || !pet.lng) {
+      console.warn('Mascota sin coordenadas válidas:', pet);
+      return false;
+    }
+    return true;
+  });
+
+  console.log('Mascotas válidas para mostrar en mapa:', validPets.length);
+
   return (
     <>
       <MapContainer 
@@ -143,8 +156,18 @@ function MapView({ center, pets, userLocation, onCenterLocation }) {
         
         <RecenterMap center={mapCenter} />
         
-        {pets.map((pet) => {
+        {validPets.map((pet) => {
           const statusInfo = getPetStatusInfo(pet.status);
+          
+          // Obtener URLs completas de todas las imágenes usando imageHelper
+          const imageUrls = pet.images ? pet.images.map(img => getImageUrl(img)) : [];
+          
+          console.log(`Mascota "${pet.name || 'Sin nombre'}":`, {
+            images: pet.images,
+            imageUrls: imageUrls,
+            hasImages: imageUrls.length > 0
+          });
+          
           return (
             <Marker
               key={pet.id}
@@ -152,37 +175,109 @@ function MapView({ center, pets, userLocation, onCenterLocation }) {
               icon={getPetIcon(pet.status)}
             >
               <Popup>
-                <div style={{ minWidth: 220 }}>
-                  <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
-                    {pet.images && pet.images.map((img, idx) => (
-                      <img
-                        key={idx}
-                        src={img}
-                        alt={pet.name}
-                        style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px", cursor: "pointer" }}
-                        onClick={() => openModal(pet.images, idx)}
-                      />
-                    ))}
+                <div style={{ minWidth: 220, maxWidth: 300 }}>
+                  {imageUrls.length > 0 ? (
+                    <div style={{ display: "flex", gap: "4px", marginBottom: "8px", overflowX: "auto" }}>
+                      {imageUrls.map((imgUrl, idx) => {
+                        console.log(`Mostrando imagen ${idx}: ${imgUrl}`);
+                        return (
+                          <img
+                            key={idx}
+                            src={imgUrl}
+                            alt={pet.name || `Mascota ${idx + 1}`}
+                            style={{ 
+                              width: "60px", 
+                              height: "60px", 
+                              objectFit: "cover", 
+                              borderRadius: "6px", 
+                              cursor: "pointer",
+                              border: "1px solid #ddd"
+                            }}
+                            onClick={() => openModal(imageUrls, idx)}
+                            onError={(e) => {
+                              console.error('❌ Error cargando imagen en popup:', imgUrl);
+                              e.target.src = 'https://via.placeholder.com/60x60/cccccc/666666?text=Imagen+no+disponible';
+                            }}
+                            onLoad={() => console.log(`✅ Imagen cargada: ${imgUrl}`)}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ marginBottom: "8px", textAlign: "center", color: "#666" }}>
+                      <i className="fas fa-image" style={{ fontSize: "24px", marginBottom: "4px" }}></i>
+                      <div>Sin imágenes</div>
+                    </div>
+                  )}
+                  
+                  <strong style={{ fontSize: "16px", display: "block", marginBottom: "4px" }}>
+                    {pet.name || "Sin nombre"}
+                  </strong>
+                  
+                  {pet.description && (
+                    <p style={{ fontSize: "0.95em", margin: "8px 0", color: "#444" }}>
+                      {pet.description.length > 100 ? `${pet.description.substring(0, 100)}...` : pet.description}
+                    </p>
+                  )}
+                  
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+                    <span 
+                      style={{ 
+                        padding: "2px 8px", 
+                        borderRadius: "12px", 
+                        fontSize: "0.8em", 
+                        fontWeight: "bold",
+                        backgroundColor: statusInfo.className.includes('red') ? "#fee2e2" : 
+                                      statusInfo.className.includes('green') ? "#dcfce7" : 
+                                      statusInfo.className.includes('orange') ? "#ffedd5" : "#f3f4f6",
+                        color: statusInfo.className.includes('red') ? "#dc2626" : 
+                               statusInfo.className.includes('green') ? "#16a34a" : 
+                               statusInfo.className.includes('orange') ? "#ea580c" : "#374151"
+                      }}
+                    >
+                      {statusInfo.text}
+                    </span>
+                    
+                    {pet.species && (
+                      <span style={{ fontSize: "0.8em", color: "#666" }}>
+                        <i className="fas fa-paw mr-1"></i>
+                        {pet.species === 'dog' ? 'Perro' : 
+                         pet.species === 'cat' ? 'Gato' : 
+                         pet.species === 'bird' ? 'Ave' : 
+                         pet.species === 'rabbit' ? 'Conejo' : 'Otro'}
+                      </span>
+                    )}
                   </div>
-                  <strong>{pet.name}</strong>
-                  <p style={{ fontSize: "0.95em", margin: "8px 0" }}>{pet.description}</p>
-                  <span className={`px-2 py-1 rounded text-xs font-semibold ${statusInfo.className}`}>
-                    {statusInfo.text}
-                  </span>
+                  
+                  {pet.user && pet.user.name && (
+                    <div style={{ marginTop: "8px", fontSize: "0.8em", color: "#666", borderTop: "1px solid #eee", paddingTop: "8px" }}>
+                      Publicado por: <strong>{pet.user.name}</strong>
+                    </div>
+                  )}
+                  
+                  <button
+                    onClick={() => onStartChat && onStartChat(pet.user || { name: "Usuario" })}
+                    style={{
+                      marginTop: "12px",
+                      padding: "6px 12px",
+                      backgroundColor: "#3b82f6",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "0.85em",
+                      cursor: "pointer",
+                      width: "100%"
+                    }}
+                  >
+                    <i className="fas fa-comment-dots mr-1"></i>
+                    Contactar
+                  </button>
                 </div>
               </Popup>
             </Marker>
           );
         })}
         
-        {userLocation && (
-          <Marker
-            position={[userLocation.lat, userLocation.lng]}
-            icon={userIcon}
-          >
-            <Popup>Tu ubicación actual</Popup>
-          </Marker>
-        )}
       </MapContainer>
       
       {/* Botón para centrar ubicación */}
